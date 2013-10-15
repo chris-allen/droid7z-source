@@ -8,23 +8,29 @@
 
 #include "Common/MyException.h"
 #include "Common/StdOutStream.h"
+#include "Common/IntToString.h"
 #include "Windows/Error.h"
 #include "Windows/NtCheck.h"
 
+#include "../CPP/7zip/Compress/LZMA_Alone/LzmaBenchCon.h"
 #include "../CPP/7zip/UI/Common/ArchiveCommandLine.h"
 #include "../CPP/7zip/UI/Common/ExitCode.h"
 #include "../CPP/7zip/UI/Console/ConsoleClose.h"
+#include "../CPP/7zip/UI/Console/List.h"
+#include "../CPP/7zip/UI/Console/ExtractCallbackConsole.h"
+#include "../CPP/7zip/UI/Console/OpenCallbackConsole.h"
+#include "../CPP/7zip/UI/Console/UpdateCallbackConsole.h"
 
 #include "7za.h"
 #include "7za_log.h"
 #include "com_snda_Andro7z_Andro7za.h"
 
-#define  ARGC 1
+#define  ARGC 4
 static const char *test_args [ARGC+1] = {
     "7za",
-    // "x",
-    // "-o/mnt/sdcard",
-    // "/mnt/sdcard/vista.7z",
+    "x",
+    "-o/data/data/com.snda.Andro7z/lib",
+    "/storage/sdcard0/Download/volar.lib",
     0
 };
 
@@ -41,6 +47,11 @@ static const char *kUserBreak  = "\nBreak signaled\n";
 static const char *kMemoryExceptionMessage = "\n\nERROR: Can't allocate required memory!\n";
 static const char *kUnknownExceptionMessage = "\n\nUnknown Error\n";
 static const char *kInternalExceptionMessage = "\n\nInternal Error #";
+static const char *kEverythingIsOk = "Everything is Ok";
+static const char *kNoFormats = "7-Zip cannot find the code that works with archives.";
+static const char *kUnsupportedArcTypeMessage = "Unsupported archive type";
+static const char *kUserErrorMessage  = "Incorrect command line";
+static const wchar_t *kDefaultSfxModule = L"7z.sfx";
 
 const char *HELP_STRING =
     "\nUsage: 7z"
@@ -99,6 +110,41 @@ static void show_copyright_and_help()
     LOG_I(HELP_STRING);
 }
 
+static void ShowMessageAndThrowException(CStdOutStream &s, LPCSTR message, NExitCode::EEnum code)
+{
+  s << message << endl;
+  throw code;
+}
+
+static void PrintHelpAndExit(CStdOutStream &s)
+{
+  s << HELP_STRING;
+  ShowMessageAndThrowException(s, kUserErrorMessage, NExitCode::kUserError);
+}
+
+#ifdef EXTERNAL_CODECS
+static void PrintString(CStdOutStream &stdStream, const AString &s, int size)
+{
+  int len = s.Length();
+  stdStream << s;
+  for (int i = len; i < size; i++)
+    stdStream << ' ';
+}
+#endif
+
+static void PrintString(CStdOutStream &stdStream, const UString &s, int size)
+{
+  int len = s.Length();
+  stdStream << s;
+  for (int i = len; i < size; i++)
+    stdStream << ' ';
+}
+
+static inline char GetHex(Byte value)
+{
+  return (char)((value < 10) ? ('0' + value) : ('A' + (value - 10)));
+}
+
 int run_7za(int argc, const char *argv[])
 {
     CStdOutStream &stdStream = g_StdOut;
@@ -114,436 +160,437 @@ int run_7za(int argc, const char *argv[])
         mySplitCommandLine(argc, argv, commandStrings);
 #endif
 
-        show_copyright_and_help();
+        // show_copyright_and_help();
     
-        if (commandStrings.Size() == 1)
-        {
-            // 如果没有任何参数，打印帮助信息
-            show_copyright_and_help();
-            return 0;
-        }
+        // if (commandStrings.Size() == 1)
+        // {
+        //     // 如果没有任何参数，打印帮助信息
+        //     show_copyright_and_help();
+        //     return 0;
+        // }
     
         // commandStrings.Delete(0);
 
-//     CArchiveCommandLineOptions options;
 
-//     CArchiveCommandLineParser parser;
+    CArchiveCommandLineOptions options;
 
-//     parser.Parse1(commandStrings, options);
+    CArchiveCommandLineParser parser;
 
-//     if (options.HelpMode)
-//     {
-//         ShowCopyrightAndHelp(g_StdOut, true);
-//         return 0;
-//     }
+    parser.Parse1(commandStrings, options);
 
-// #if defined(_7ZIP_LARGE_PAGES)
-//     if (options.LargePages)
-//     {
-//         SetLargePageSize();
-// #ifdef _WIN32
-//         NSecurity::EnableLockMemoryPrivilege();
-// #endif
-//     }
-// #endif
+    if (options.HelpMode)
+    {
+        show_copyright_and_help();
+        return 0;
+    }
 
-//     CStdOutStream &stdStream = options.StdOutMode ? g_StdErr : g_StdOut;
-//     g_StdStream = &stdStream;
+#if defined(_7ZIP_LARGE_PAGES)
+    if (options.LargePages)
+    {
+        SetLargePageSize();
+#ifdef _WIN32
+        NSecurity::EnableLockMemoryPrivilege();
+#endif
+    }
+#endif
 
-//     if (options.EnableHeaders)
-//         ShowCopyrightAndHelp(stdStream, false);
+    CStdOutStream &stdStream = options.StdOutMode ? g_StdErr : g_StdOut;
+    g_StdStream = &stdStream;
 
-//     parser.Parse2(options);
+    if (options.EnableHeaders)
+        show_copyright_and_help();
 
-//     CCodecs *codecs = new CCodecs;
-//     CMyComPtr<
-// #ifdef EXTERNAL_CODECS
-//         ICompressCodecsInfo
-// #else
-//         IUnknown
-// #endif
-//         > compressCodecsInfo = codecs;
-//     HRESULT result = codecs->Load();
-//     if (result != S_OK)
-//         throw CSystemException(result);
+    parser.Parse2(options);
 
-//     bool isExtractGroupCommand = options.Command.IsFromExtractGroup();
+    CCodecs *codecs = new CCodecs;
+    CMyComPtr<
+#ifdef EXTERNAL_CODECS
+        ICompressCodecsInfo
+#else
+        IUnknown
+#endif
+        > compressCodecsInfo = codecs;
+    HRESULT result = codecs->Load();
+    if (result != S_OK)
+        throw CSystemException(result);
 
-//     if (codecs->Formats.Size() == 0 &&
-//         (isExtractGroupCommand ||
-//          options.Command.CommandType == NCommandType::kList ||
-//          options.Command.IsFromUpdateGroup()))
-//         throw kNoFormats;
+    bool isExtractGroupCommand = options.Command.IsFromExtractGroup();
 
-//     CIntVector formatIndices;
-//     if (!codecs->FindFormatForArchiveType(options.ArcType, formatIndices))
-//         throw kUnsupportedArcTypeMessage;
+    if (codecs->Formats.Size() == 0 &&
+        (isExtractGroupCommand ||
+         options.Command.CommandType == NCommandType::kList ||
+         options.Command.IsFromUpdateGroup()))
+        throw kNoFormats;
 
-//     if (options.Command.CommandType == NCommandType::kInfo)
-//     {
-//         stdStream << endl << "Formats:" << endl;
-//         int i;
-//         for (i = 0; i < codecs->Formats.Size(); i++)
-//         {
-//             const CArcInfoEx &arc = codecs->Formats[i];
-// #ifdef EXTERNAL_CODECS
-//             if (arc.LibIndex >= 0)
-//             {
-//                 char s[16];
-//                 ConvertUInt32ToString(arc.LibIndex, s);
-//                 PrintString(stdStream, s, 2);
-//             }
-//             else
-// #endif
-//                 stdStream << "  ";
-//             stdStream << ' ';
-//             stdStream << (char)(arc.UpdateEnabled ? 'C' : ' ');
-//             stdStream << (char)(arc.KeepName ? 'K' : ' ');
-//             stdStream << "  ";
-//             PrintString(stdStream, arc.Name, 6);
-//             stdStream << "  ";
-//             UString s;
-//             for (int t = 0; t < arc.Exts.Size(); t++)
-//             {
-//                 const CArcExtInfo &ext = arc.Exts[t];
-//                 s += ext.Ext;
-//                 if (!ext.AddExt.IsEmpty())
-//                 {
-//                     s += L" (";
-//                     s += ext.AddExt;
-//                     s += L')';
-//                 }
-//                 s += L' ';
-//             }
-//             PrintString(stdStream, s, 14);
-//             stdStream << "  ";
-//             const CByteBuffer &sig = arc.StartSignature;
-//             for (size_t j = 0; j < sig.GetCapacity(); j++)
-//             {
-//                 Byte b = sig[j];
-//                 if (b > 0x20 && b < 0x80)
-//                 {
-//                     stdStream << (char)b;
-//                 }
-//                 else
-//                 {
-//                     stdStream << GetHex((Byte)((b >> 4) & 0xF));
-//                     stdStream << GetHex((Byte)(b & 0xF));
-//                 }
-//                 stdStream << ' ';
-//             }
-//             stdStream << endl;
-//         }
-//         stdStream << endl << "Codecs:" << endl;
+    CIntVector formatIndices;
+    if (!codecs->FindFormatForArchiveType(options.ArcType, formatIndices))
+        throw kUnsupportedArcTypeMessage;
 
-// #ifdef EXTERNAL_CODECS
-//         UInt32 numMethods;
-//         if (codecs->GetNumberOfMethods(&numMethods) == S_OK)
-//             for (UInt32 j = 0; j < numMethods; j++)
-//             {
-//                 int libIndex = codecs->GetCodecLibIndex(j);
-//                 if (libIndex >= 0)
-//                 {
-//                     char s[16];
-//                     ConvertUInt32ToString(libIndex, s);
-//                     PrintString(stdStream, s, 2);
-//                 }
-//                 else
-//                     stdStream << "  ";
-//                 stdStream << ' ';
-//                 stdStream << (char)(codecs->GetCodecEncoderIsAssigned(j) ? 'C' : ' ');
-//                 UInt64 id;
-//                 stdStream << "  ";
-//                 HRESULT res = codecs->GetCodecId(j, id);
-//                 if (res != S_OK)
-//                     id = (UInt64)(Int64)-1;
-//                 char s[32];
-//                 ConvertUInt64ToString(id, s, 16);
-//                 PrintString(stdStream, s, 8);
-//                 stdStream << "  ";
-//                 PrintString(stdStream, codecs->GetCodecName(j), 11);
-//                 stdStream << endl;
-//                 /*
-//                   if (res != S_OK)
-//                   throw "incorrect Codec ID";
-//                 */
-//             }
-// #endif
-//         return S_OK;
-//     }
-//     else if (options.Command.CommandType == NCommandType::kBenchmark)
-//     {
-//         if (options.Method.CompareNoCase(L"CRC") == 0)
-//         {
-//             HRESULT res = CrcBenchCon((FILE *)stdStream, options.NumIterations, options.NumThreads, options.DictionarySize);
-//             if (res != S_OK)
-//             {
-//                 if (res == S_FALSE)
-//                 {
-//                     stdStream << "\nCRC Error\n";
-//                     return NExitCode::kFatalError;
-//                 }
-//                 throw CSystemException(res);
-//             }
-//         }
-//         else
-//         {
-//             HRESULT res;
-// #ifdef EXTERNAL_CODECS
-//             CObjectVector<CCodecInfoEx> externalCodecs;
-//             res = LoadExternalCodecs(compressCodecsInfo, externalCodecs);
-//             if (res != S_OK)
-//                 throw CSystemException(res);
-// #endif
-//             res = LzmaBenchCon(
-// #ifdef EXTERNAL_CODECS
-//                 compressCodecsInfo, &externalCodecs,
-// #endif
-//                 (FILE *)stdStream, options.NumIterations, options.NumThreads, options.DictionarySize);
-//             if (res != S_OK)
-//             {
-//                 if (res == S_FALSE)
-//                 {
-//                     stdStream << "\nDecoding Error\n";
-//                     return NExitCode::kFatalError;
-//                 }
-//                 throw CSystemException(res);
-//             }
-//         }
-//     }
-//     else if (isExtractGroupCommand || options.Command.CommandType == NCommandType::kList)
-//     {
-//         if (isExtractGroupCommand)
-//         {
-//             CExtractCallbackConsole *ecs = new CExtractCallbackConsole;
-//             CMyComPtr<IFolderArchiveExtractCallback> extractCallback = ecs;
+    if (options.Command.CommandType == NCommandType::kInfo)
+    {
+        stdStream << endl << "Formats:" << endl;
+        int i;
+        for (i = 0; i < codecs->Formats.Size(); i++)
+        {
+            const CArcInfoEx &arc = codecs->Formats[i];
+#ifdef EXTERNAL_CODECS
+            if (arc.LibIndex >= 0)
+            {
+                char s[16];
+                ConvertUInt32ToString(arc.LibIndex, s);
+                PrintString(stdStream, s, 2);
+            }
+            else
+#endif
+                stdStream << "  ";
+            stdStream << ' ';
+            stdStream << (char)(arc.UpdateEnabled ? 'C' : ' ');
+            stdStream << (char)(arc.KeepName ? 'K' : ' ');
+            stdStream << "  ";
+            PrintString(stdStream, arc.Name, 6);
+            stdStream << "  ";
+            UString s;
+            for (int t = 0; t < arc.Exts.Size(); t++)
+            {
+                const CArcExtInfo &ext = arc.Exts[t];
+                s += ext.Ext;
+                if (!ext.AddExt.IsEmpty())
+                {
+                    s += L" (";
+                    s += ext.AddExt;
+                    s += L')';
+                }
+                s += L' ';
+            }
+            PrintString(stdStream, s, 14);
+            stdStream << "  ";
+            const CByteBuffer &sig = arc.StartSignature;
+            for (size_t j = 0; j < sig.GetCapacity(); j++)
+            {
+                Byte b = sig[j];
+                if (b > 0x20 && b < 0x80)
+                {
+                    stdStream << (char)b;
+                }
+                else
+                {
+                    stdStream << GetHex((Byte)((b >> 4) & 0xF));
+                    stdStream << GetHex((Byte)(b & 0xF));
+                }
+                stdStream << ' ';
+            }
+            stdStream << endl;
+        }
+        stdStream << endl << "Codecs:" << endl;
 
-//             ecs->OutStream = &stdStream;
+#ifdef EXTERNAL_CODECS
+        UInt32 numMethods;
+        if (codecs->GetNumberOfMethods(&numMethods) == S_OK)
+            for (UInt32 j = 0; j < numMethods; j++)
+            {
+                int libIndex = codecs->GetCodecLibIndex(j);
+                if (libIndex >= 0)
+                {
+                    char s[16];
+                    ConvertUInt32ToString(libIndex, s);
+                    PrintString(stdStream, s, 2);
+                }
+                else
+                    stdStream << "  ";
+                stdStream << ' ';
+                stdStream << (char)(codecs->GetCodecEncoderIsAssigned(j) ? 'C' : ' ');
+                UInt64 id;
+                stdStream << "  ";
+                HRESULT res = codecs->GetCodecId(j, id);
+                if (res != S_OK)
+                    id = (UInt64)(Int64)-1;
+                char s[32];
+                ConvertUInt64ToString(id, s, 16);
+                PrintString(stdStream, s, 8);
+                stdStream << "  ";
+                PrintString(stdStream, codecs->GetCodecName(j), 11);
+                stdStream << endl;
+                /*
+                  if (res != S_OK)
+                  throw "incorrect Codec ID";
+                */
+            }
+#endif
+        return S_OK;
+    }
+    else if (options.Command.CommandType == NCommandType::kBenchmark)
+    {
+        if (options.Method.CompareNoCase(L"CRC") == 0)
+        {
+            HRESULT res = CrcBenchCon((FILE *)stdStream, options.NumIterations, options.NumThreads, options.DictionarySize);
+            if (res != S_OK)
+            {
+                if (res == S_FALSE)
+                {
+                    stdStream << "\nCRC Error\n";
+                    return NExitCode::kFatalError;
+                }
+                throw CSystemException(res);
+            }
+        }
+        else
+        {
+            HRESULT res;
+#ifdef EXTERNAL_CODECS
+            CObjectVector<CCodecInfoEx> externalCodecs;
+            res = LoadExternalCodecs(compressCodecsInfo, externalCodecs);
+            if (res != S_OK)
+                throw CSystemException(res);
+#endif
+            res = LzmaBenchCon(
+#ifdef EXTERNAL_CODECS
+                compressCodecsInfo, &externalCodecs,
+#endif
+                (FILE *)stdStream, options.NumIterations, options.NumThreads, options.DictionarySize);
+            if (res != S_OK)
+            {
+                if (res == S_FALSE)
+                {
+                    stdStream << "\nDecoding Error\n";
+                    return NExitCode::kFatalError;
+                }
+                throw CSystemException(res);
+            }
+        }
+    }
+    else if (isExtractGroupCommand || options.Command.CommandType == NCommandType::kList)
+    {
+        if (isExtractGroupCommand)
+        {
+            CExtractCallbackConsole *ecs = new CExtractCallbackConsole;
+            CMyComPtr<IFolderArchiveExtractCallback> extractCallback = ecs;
 
-// #ifndef _NO_CRYPTO
-//             ecs->PasswordIsDefined = options.PasswordEnabled;
-//             ecs->Password = options.Password;
-// #endif
+            ecs->OutStream = &stdStream;
 
-//             ecs->Init();
+#ifndef _NO_CRYPTO
+            ecs->PasswordIsDefined = options.PasswordEnabled;
+            ecs->Password = options.Password;
+#endif
 
-//             COpenCallbackConsole openCallback;
-//             openCallback.OutStream = &stdStream;
+            ecs->Init();
 
-// #ifndef _NO_CRYPTO
-//             openCallback.PasswordIsDefined = options.PasswordEnabled;
-//             openCallback.Password = options.Password;
-// #endif
+            COpenCallbackConsole openCallback;
+            openCallback.OutStream = &stdStream;
 
-//             CExtractOptions eo;
-//             eo.StdInMode = options.StdInMode;
-//             eo.StdOutMode = options.StdOutMode;
-//             eo.PathMode = options.Command.GetPathMode();
-//             eo.TestMode = options.Command.IsTestMode();
-//             eo.OverwriteMode = options.OverwriteMode;
-//             eo.OutputDir = options.OutputDir;
-//             eo.YesToAll = options.YesToAll;
-//             eo.CalcCrc = options.CalcCrc;
-// #if !defined(_7ZIP_ST) && !defined(_SFX)
-//             eo.Properties = options.ExtractProperties;
-// #endif
-//             UString errorMessage;
-//             CDecompressStat stat;
-//             HRESULT result = DecompressArchives(
-//                 codecs,
-//                 formatIndices,
-//                 options.ArchivePathsSorted,
-//                 options.ArchivePathsFullSorted,
-//                 options.WildcardCensor.Pairs.Front().Head,
-//                 eo, &openCallback, ecs, errorMessage, stat);
-//             if (!errorMessage.IsEmpty())
-//             {
-//                 stdStream << endl << "Error: " << errorMessage;
-//                 if (result == S_OK)
-//                     result = E_FAIL;
-//             }
+#ifndef _NO_CRYPTO
+            openCallback.PasswordIsDefined = options.PasswordEnabled;
+            openCallback.Password = options.Password;
+#endif
 
-//             stdStream << endl;
-//             if (ecs->NumArchives > 1)
-//                 stdStream << "Archives: " << ecs->NumArchives << endl;
-//             if (ecs->NumArchiveErrors != 0 || ecs->NumFileErrors != 0)
-//             {
-//                 if (ecs->NumArchives > 1)
-//                 {
-//                     stdStream << endl;
-//                     if (ecs->NumArchiveErrors != 0)
-//                         stdStream << "Archive Errors: " << ecs->NumArchiveErrors << endl;
-//                     if (ecs->NumFileErrors != 0)
-//                         stdStream << "Sub items Errors: " << ecs->NumFileErrors << endl;
-//                 }
-//                 if (result != S_OK)
-//                     throw CSystemException(result);
-//                 return NExitCode::kFatalError;
-//             }
-//             if (result != S_OK)
-//                 throw CSystemException(result);
-//             if (stat.NumFolders != 0)
-//                 stdStream << "Folders: " << stat.NumFolders << endl;
-//             if (stat.NumFiles != 1 || stat.NumFolders != 0)
-//                 stdStream << "Files: " << stat.NumFiles << endl;
-//             stdStream
-//                 << "Size:       " << stat.UnpackSize << endl
-//                 << "Compressed: " << stat.PackSize << endl;
-//             if (options.CalcCrc)
-//             {
-//                 char s[16];
-//                 ConvertUInt32ToHexWithZeros(stat.CrcSum, s);
-//                 stdStream << "CRC: " << s << endl;
-//             }
-//         }
-//         else
-//         {
-//             UInt64 numErrors = 0;
-//             HRESULT result = ListArchives(
-//                 codecs,
-//                 formatIndices,
-//                 options.StdInMode,
-//                 options.ArchivePathsSorted,
-//                 options.ArchivePathsFullSorted,
-//                 options.WildcardCensor.Pairs.Front().Head,
-//                 options.EnableHeaders,
-//                 options.TechMode,
-// #ifndef _NO_CRYPTO
-//                 options.PasswordEnabled,
-//                 options.Password,
-// #endif
-//                 numErrors);
-//             if (numErrors > 0)
-//             {
-//                 g_StdOut << endl << "Errors: " << numErrors;
-//                 return NExitCode::kFatalError;
-//             }
-//             if (result != S_OK)
-//                 throw CSystemException(result);
-//         }
-//     }
-//     else if (options.Command.IsFromUpdateGroup())
-//     {
-//         CUpdateOptions &uo = options.UpdateOptions;
-//         if (uo.SfxMode && uo.SfxModule.IsEmpty())
-//             uo.SfxModule = kDefaultSfxModule;
+            CExtractOptions eo;
+            eo.StdInMode = options.StdInMode;
+            eo.StdOutMode = options.StdOutMode;
+            eo.PathMode = options.Command.GetPathMode();
+            eo.TestMode = options.Command.IsTestMode();
+            eo.OverwriteMode = options.OverwriteMode;
+            eo.OutputDir = options.OutputDir;
+            eo.YesToAll = options.YesToAll;
+            eo.CalcCrc = options.CalcCrc;
+#if !defined(_7ZIP_ST) && !defined(_SFX)
+            eo.Properties = options.ExtractProperties;
+#endif
+            UString errorMessage;
+            CDecompressStat stat;
+            HRESULT result = DecompressArchives(
+                codecs,
+                formatIndices,
+                options.ArchivePathsSorted,
+                options.ArchivePathsFullSorted,
+                options.WildcardCensor.Pairs.Front().Head,
+                eo, &openCallback, ecs, errorMessage, stat);
+            if (!errorMessage.IsEmpty())
+            {
+                stdStream << endl << "Error: " << errorMessage;
+                if (result == S_OK)
+                    result = E_FAIL;
+            }
 
-//         COpenCallbackConsole openCallback;
-//         openCallback.OutStream = &stdStream;
+            stdStream << endl;
+            if (ecs->NumArchives > 1)
+                stdStream << "Archives: " << ecs->NumArchives << endl;
+            if (ecs->NumArchiveErrors != 0 || ecs->NumFileErrors != 0)
+            {
+                if (ecs->NumArchives > 1)
+                {
+                    stdStream << endl;
+                    if (ecs->NumArchiveErrors != 0)
+                        stdStream << "Archive Errors: " << ecs->NumArchiveErrors << endl;
+                    if (ecs->NumFileErrors != 0)
+                        stdStream << "Sub items Errors: " << ecs->NumFileErrors << endl;
+                }
+                if (result != S_OK)
+                    throw CSystemException(result);
+                return NExitCode::kFatalError;
+            }
+            if (result != S_OK)
+                throw CSystemException(result);
+            if (stat.NumFolders != 0)
+                stdStream << "Folders: " << stat.NumFolders << endl;
+            if (stat.NumFiles != 1 || stat.NumFolders != 0)
+                stdStream << "Files: " << stat.NumFiles << endl;
+            stdStream
+                << "Size:       " << stat.UnpackSize << endl
+                << "Compressed: " << stat.PackSize << endl;
+            if (options.CalcCrc)
+            {
+                char s[16];
+                ConvertUInt32ToHexWithZeros(stat.CrcSum, s);
+                stdStream << "CRC: " << s << endl;
+            }
+        }
+        else
+        {
+            UInt64 numErrors = 0;
+            HRESULT result = ListArchives(
+                codecs,
+                formatIndices,
+                options.StdInMode,
+                options.ArchivePathsSorted,
+                options.ArchivePathsFullSorted,
+                options.WildcardCensor.Pairs.Front().Head,
+                options.EnableHeaders,
+                options.TechMode,
+#ifndef _NO_CRYPTO
+                options.PasswordEnabled,
+                options.Password,
+#endif
+                numErrors);
+            if (numErrors > 0)
+            {
+                g_StdOut << endl << "Errors: " << numErrors;
+                return NExitCode::kFatalError;
+            }
+            if (result != S_OK)
+                throw CSystemException(result);
+        }
+    }
+    else if (options.Command.IsFromUpdateGroup())
+    {
+        CUpdateOptions &uo = options.UpdateOptions;
+        if (uo.SfxMode && uo.SfxModule.IsEmpty())
+            uo.SfxModule = kDefaultSfxModule;
 
-// #ifndef _NO_CRYPTO
-//         bool passwordIsDefined =
-//             options.PasswordEnabled && !options.Password.IsEmpty();
-//         openCallback.PasswordIsDefined = passwordIsDefined;
-//         openCallback.Password = options.Password;
-// #endif
+        COpenCallbackConsole openCallback;
+        openCallback.OutStream = &stdStream;
 
-//         CUpdateCallbackConsole callback;
-//         callback.EnablePercents = options.EnablePercents;
+#ifndef _NO_CRYPTO
+        bool passwordIsDefined =
+            options.PasswordEnabled && !options.Password.IsEmpty();
+        openCallback.PasswordIsDefined = passwordIsDefined;
+        openCallback.Password = options.Password;
+#endif
 
-// #ifndef _NO_CRYPTO
-//         callback.PasswordIsDefined = passwordIsDefined;
-//         callback.AskPassword = options.PasswordEnabled && options.Password.IsEmpty();
-//         callback.Password = options.Password;
-// #endif
-//         callback.StdOutMode = uo.StdOutMode;
-//         callback.Init(&stdStream);
+        CUpdateCallbackConsole callback;
+        callback.EnablePercents = options.EnablePercents;
 
-//         CUpdateErrorInfo errorInfo;
+#ifndef _NO_CRYPTO
+        callback.PasswordIsDefined = passwordIsDefined;
+        callback.AskPassword = options.PasswordEnabled && options.Password.IsEmpty();
+        callback.Password = options.Password;
+#endif
+        callback.StdOutMode = uo.StdOutMode;
+        callback.Init(&stdStream);
 
-//         if (!uo.Init(codecs, formatIndices, options.ArchiveName))
-//             throw kUnsupportedArcTypeMessage;
-//         HRESULT result = UpdateArchive(codecs,
-//                                        options.WildcardCensor, uo,
-//                                        errorInfo, &openCallback, &callback);
+        CUpdateErrorInfo errorInfo;
 
-// #ifdef ENV_UNIX
-//         if (uo.SfxMode)
-//         {
-//             void myAddExeFlag(const UString &name);
-//             for(int i = 0; i < uo.Commands.Size(); i++)
-//             {
-//                 CUpdateArchiveCommand &command = uo.Commands[i];
-//                 if (!uo.StdOutMode)
-//                 {
-//                     myAddExeFlag(command.ArchivePath.GetFinalPath());
-//                 }
-//             }
-//         }
-// #endif
+        if (!uo.Init(codecs, formatIndices, options.ArchiveName))
+            throw kUnsupportedArcTypeMessage;
+        HRESULT result = UpdateArchive(codecs,
+                                       options.WildcardCensor, uo,
+                                       errorInfo, &openCallback, &callback);
 
-//         int exitCode = NExitCode::kSuccess;
-//         if (callback.CantFindFiles.Size() > 0)
-//         {
-//             stdStream << endl;
-//             stdStream << "WARNINGS for files:" << endl << endl;
-//             int numErrors = callback.CantFindFiles.Size();
-//             for (int i = 0; i < numErrors; i++)
-//             {
-//                 stdStream << callback.CantFindFiles[i] << " : ";
-//                 stdStream << NError::MyFormatMessageW(callback.CantFindCodes[i]) << endl;
-//             }
-//             stdStream << "----------------" << endl;
-//             stdStream << "WARNING: Cannot find " << numErrors << " file";
-//             if (numErrors > 1)
-//                 stdStream << "s";
-//             stdStream << endl;
-//             exitCode = NExitCode::kWarning;
-//         }
+#ifdef ENV_UNIX
+        if (uo.SfxMode)
+        {
+            void myAddExeFlag(const UString &name);
+            for(int i = 0; i < uo.Commands.Size(); i++)
+            {
+                CUpdateArchiveCommand &command = uo.Commands[i];
+                if (!uo.StdOutMode)
+                {
+                    myAddExeFlag(command.ArchivePath.GetFinalPath());
+                }
+            }
+        }
+#endif
 
-//         if (result != S_OK)
-//         {
-//             UString message;
-//             if (!errorInfo.Message.IsEmpty())
-//             {
-//                 message += errorInfo.Message;
-//                 message += L"\n";
-//             }
-//             if (!errorInfo.FileName.IsEmpty())
-//             {
-//                 message += errorInfo.FileName;
-//                 message += L"\n";
-//             }
-//             if (!errorInfo.FileName2.IsEmpty())
-//             {
-//                 message += errorInfo.FileName2;
-//                 message += L"\n";
-//             }
-//             if (errorInfo.SystemError != 0)
-//             {
-//                 message += NError::MyFormatMessageW(errorInfo.SystemError);
-//                 message += L"\n";
-//             }
-//             if (!message.IsEmpty())
-//                 stdStream << L"\nError:\n" << message;
-//             throw CSystemException(result);
-//         }
-//         int numErrors = callback.FailedFiles.Size();
-//         if (numErrors == 0)
-//         {
-//             if (callback.CantFindFiles.Size() == 0)
-//                 stdStream << kEverythingIsOk << endl;
-//         }
-//         else
-//         {
-//             stdStream << endl;
-//             stdStream << "WARNINGS for files:" << endl << endl;
-//             for (int i = 0; i < numErrors; i++)
-//             {
-//                 stdStream << callback.FailedFiles[i] << " : ";
-//                 stdStream << NError::MyFormatMessageW(callback.FailedCodes[i]) << endl;
-//             }
-//             stdStream << "----------------" << endl;
-//             stdStream << "WARNING: Cannot open " << numErrors << " file";
-//             if (numErrors > 1)
-//                 stdStream << "s";
-//             stdStream << endl;
-//             exitCode = NExitCode::kWarning;
-//         }
-//         return exitCode;
-//     }
-//     else
-//         PrintHelpAndExit(stdStream);
+        int exitCode = NExitCode::kSuccess;
+        if (callback.CantFindFiles.Size() > 0)
+        {
+            stdStream << endl;
+            stdStream << "WARNINGS for files:" << endl << endl;
+            int numErrors = callback.CantFindFiles.Size();
+            for (int i = 0; i < numErrors; i++)
+            {
+                stdStream << callback.CantFindFiles[i] << " : ";
+                //stdStream << NError::MyFormatMessageW(callback.CantFindCodes[i]) << endl;
+            }
+            stdStream << "----------------" << endl;
+            stdStream << "WARNING: Cannot find " << numErrors << " file";
+            if (numErrors > 1)
+                stdStream << "s";
+            stdStream << endl;
+            exitCode = NExitCode::kWarning;
+        }
+
+        if (result != S_OK)
+        {
+            UString message;
+            if (!errorInfo.Message.IsEmpty())
+            {
+                message += errorInfo.Message;
+                message += L"\n";
+            }
+            if (!errorInfo.FileName.IsEmpty())
+            {
+                message += errorInfo.FileName;
+                message += L"\n";
+            }
+            if (!errorInfo.FileName2.IsEmpty())
+            {
+                message += errorInfo.FileName2;
+                message += L"\n";
+            }
+            if (errorInfo.SystemError != 0)
+            {
+                //message += NError::MyFormatMessageW(errorInfo.SystemError);
+                message += L"\n";
+            }
+            if (!message.IsEmpty())
+                stdStream << L"\nError:\n" << message;
+            throw CSystemException(result);
+        }
+        int numErrors = callback.FailedFiles.Size();
+        if (numErrors == 0)
+        {
+            if (callback.CantFindFiles.Size() == 0)
+                stdStream << kEverythingIsOk << endl;
+        }
+        else
+        {
+            stdStream << endl;
+            stdStream << "WARNINGS for files:" << endl << endl;
+            for (int i = 0; i < numErrors; i++)
+            {
+                stdStream << callback.FailedFiles[i] << " : ";
+                //stdStream << NError::MyFormatMessageW(callback.FailedCodes[i]) << endl;
+            }
+            stdStream << "----------------" << endl;
+            stdStream << "WARNING: Cannot open " << numErrors << " file";
+            if (numErrors > 1)
+                stdStream << "s";
+            stdStream << endl;
+            exitCode = NExitCode::kWarning;
+        }
+        return exitCode;
+    }
+    else
+        PrintHelpAndExit(stdStream);
     }
     catch(const NConsoleClose::CCtrlBreakException &)
     {
