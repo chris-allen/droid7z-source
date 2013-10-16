@@ -93,9 +93,10 @@ static HRESULT DecompressArchive(
       if (prop.vt == VT_UI8 || prop.vt == VT_UI4)
         stdInProcessed = ConvertPropVariantToUInt64(prop);
   }
-  else
+  else {
+	// This spins if files already exist
     result = archive->Extract(&realIndices.Front(), realIndices.Size(), testMode, extractCallbackSpec);
-
+  }
   return callback->ExtractResult(result);
 }
 
